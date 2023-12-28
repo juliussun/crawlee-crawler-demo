@@ -4,7 +4,6 @@ import { router } from "./routes.js";
 
 const startUrls = ["https://secure.college-ic.ca/search-new/EN"];
 
-// Define the crawler
 const crawler = new PuppeteerCrawler({
   launchContext: {
     launchOptions: {
@@ -12,7 +11,7 @@ const crawler = new PuppeteerCrawler({
     },
   },
 
-  async requestHandler({ page, request, enqueueLinks }) {
+  async requestHandler({ page, request }) {
     // Go to the page URL
     await page.goto(request.url, { waitUntil: "domcontentloaded" });
 
@@ -22,51 +21,59 @@ const crawler = new PuppeteerCrawler({
       timeout: 3000,
     });
 
-    await page.select("#search_membership_status", "7");
     // Select the "Resigned" option from the dropdown
+    await page.select("#search_membership_status", "7");
+
+    // Wait for the submit button to be clickable
     await page.waitForSelector("#full_search_submit_button", {
       visible: true,
       timeout: 1000,
     });
-    await Promise.all([
-      await page.click("#full_search_submit_button"), // Assumes this is the correct selector for the search button
-    ]).then(console.log("Pressed"));
 
-    //here add to wait for 3 secs
+    // Click the submit button and wait for the results to load
+    await page.click("#full_search_submit_button");
+    console.log("Submit button clicked");
+
+    // Wait for 3 seconds after the click
     await page.waitForTimeout(3000);
 
+    // Scrape data from the page
+    let data = await scrapeData(page);
+    console.log("1st page Data scraped:", data);
+    await Dataset.pushData(data);
 
-    const data = await page.evaluate(() => {
-      const rows = Array.from(document.querySelectorAll("#search_results tr"));
-      return rows.map((row) => {
-        const cells = row.querySelectorAll("td");
-        return {
-          Name: cells[0]?.textContent.trim(),
-          Status: cells[1]?.textContent.trim(),
-          ID: cells[3]?.textContent.trim(), // Assuming you want the 4th column (index 3)
-        };
-      });
-    });
+    // Pagination loop
+    let currentPage = 1;
+    let hasNextPage = true;
+    while (hasNextPage) {
+      currentPage += 1; // Prepare to load the next page
+      hasNextPage = await page.evaluate((currentPage) => {
+        // Use the current page number to find the next link
+        const nextLinkSelector = `ul#pager li a[href="#page-${currentPage}"]:not(.disabled)`;
+        const nextLink = document.querySelector(nextLinkSelector);
+        console.log("prepare to click:", currentPage);
+        if (nextLink) {
+          nextLink.click(); // Click the next page link
+          return true; // There is a next page
+        }
+        return false; // No next page link found
+      }, currentPage);
 
-    // Log the data and save it
-    console.log("Data scraped:", data);
-    if (data.length > 0) {
-      await Dataset.pushData(data);
-    } else {
-      console.log("No data found on the page:", request.url);
-    }
+      // If there is a next page, wait for the page to load and scrape the data
+      if (hasNextPage) {
+        // Generate a random number between 5000 and 7000
+        const randomTimeout =
+          Math.floor(Math.random() * (7000 - 5000 + 1)) + 5000;
+        // Wait for the random timeout
+        await page.waitForTimeout(randomTimeout);
 
-    // Enqueue pagination links if this was a form submission
-    if (request.userData.formSubmitted) {
-      await enqueueLinks({
-        selector: "ul.pagination li a",
-        userData: { formSubmitted: true },
-      });
+        console.log("Work on Page: ", currentPage);
+        data = await scrapeData(page);
+        console.log("Page no. ", currentPage, " Data scraped:", data);
+        await Dataset.pushData(data);
+      }
     }
   },
-
-  // Maximum requests per crawl. Adjust as necessary.
-  maxRequestsPerCrawl: 100,
 
   // Function to be called when the crawl has finished
   handleFailedRequestFunction: async ({ request }) => {
@@ -74,5 +81,20 @@ const crawler = new PuppeteerCrawler({
   },
 });
 
-// Run the crawler
+// Function to scrape data from the current page
+async function scrapeData(page) {
+  return page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll("#search_results tr"));
+    return rows.map((row) => {
+      const cells = row.querySelectorAll("td");
+      return {
+        Name: cells[0]?.textContent.trim(),
+        Status: cells[1]?.textContent.trim(),
+        ID: cells[3]?.textContent.trim(), // Assuming you want the 4th column (index 3)
+      };
+    });
+  });
+}
+
+// Run the crawler with the start URLs
 await crawler.run(startUrls);
