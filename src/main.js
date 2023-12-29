@@ -22,7 +22,7 @@ const crawler = new PuppeteerCrawler({
     });
 
     // Select the "Resigned" option from the dropdown
-    await page.select("#search_membership_status", "7");
+    await page.select("#search_membership_status", "1");
 
     // Wait for the submit button to be clickable
     await page.waitForSelector("#full_search_submit_button", {
@@ -81,20 +81,46 @@ const crawler = new PuppeteerCrawler({
   },
 });
 
-// Function to scrape data from the current page
 async function scrapeData(page) {
-  return page.evaluate(() => {
-    const rows = Array.from(document.querySelectorAll("#search_results tr"));
-    return rows.map((row) => {
-      const cells = row.querySelectorAll("td");
-      return {
-        Name: cells[0]?.textContent.trim(),
-        Status: cells[1]?.textContent.trim(),
-        ID: cells[3]?.textContent.trim(), // Assuming you want the 4th column (index 3)
-      };
-    });
+  return page.evaluate(async () => {
+      const data = [];
+      const rows = Array.from(document.querySelectorAll("#search_result tr"));
+      
+      for (const row of rows) {
+          // Extract the main data from the table
+          const cells = row.querySelectorAll("td");
+          const rowData = {
+              Name: cells[0]?.textContent.trim(),
+              Status: cells[1]?.textContent.trim(),
+              ID: cells[3]?.textContent.trim(), // Assuming you want the 4th column (index 3)
+          };
+
+          // Click the link to open the modal
+          const mapLink = cells[2].querySelector(".map_link");
+          if (mapLink) {
+              mapLink.click(); // This click will open the modal
+
+              // Wait for the modal data to become visible
+              await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for the modal to open, adjust timeout as needed
+
+              // Scrape data from the modal
+              rowData.City = document.querySelector("#popup_city")?.textContent.trim();
+              rowData.State = document.querySelector("#popup_state")?.textContent.trim();
+              rowData.Country = document.querySelector("#popup_country")?.textContent.trim();
+              rowData.CompanyName = document.querySelector("#popup_companies_names")?.textContent.trim();
+              
+              // Code to close the modal if necessary
+              // You need to know how to close the modal, e.g., clicking a close button
+              // document.querySelector('.modal-close-button').click(); // Replace with the actual selector
+          }
+          console.log(rowData);
+          data.push(rowData);
+      }
+
+      return data;
   });
 }
+
 
 // Run the crawler with the start URLs
 await crawler.run(startUrls);
