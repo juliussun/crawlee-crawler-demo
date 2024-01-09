@@ -2,7 +2,7 @@
 import { PuppeteerCrawler, ProxyConfiguration, Dataset } from "crawlee";
 import { router } from "./routes.js";
 
-const startUrls = ["https://secure.college-ic.ca/search-new/EN"];
+const startUrls = ["https://"];
 
 const crawler = new PuppeteerCrawler({
   launchContext: {
